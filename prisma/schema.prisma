@@ -1,0 +1,172 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Enums
+
+enum UserRole {
+  OWNER
+  ADMIN
+  STAFF
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MenuVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum ItemStatus {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+enum SpiceLevel {
+  NONE
+  MILD
+  MEDIUM
+  HOT
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+// Models
+
+model User {
+  id           String      @id @default(uuid())
+  fullName     String
+  email        String      @unique
+  phoneNumber  String?
+  passwordHash String
+  role         UserRole
+  status       UserStatus  @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // Relations
+  businessesOwned Business[] @relation("OwnerBusinesses")
+}
+
+model Business {
+  id              String       @id @default(uuid())
+  owner           User         @relation("OwnerBusinesses", fields: [ownerUserId], references: [id])
+  ownerUserId     String       @unique
+  name            String
+  businessPhone   String
+  streetAddress   String
+  city            String
+  state           String
+  zipcode         String
+  customSubdomain String       @unique
+  open24_7        Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  hours           BusinessHours[]
+  menus           Menu[]
+}
+
+model BusinessHours {
+  id        String     @id @default(uuid())
+  business  Business   @relation(fields: [businessId], references: [id])
+  businessId String
+  dayOfWeek DayOfWeek
+  isOpen    Boolean    @default(true)
+  startTime String?
+  endTime   String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([businessId, dayOfWeek])
+}
+
+model MenuType {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  menus     Menu[]
+}
+
+model Menu {
+  id          String        @id @default(uuid())
+  business    Business      @relation(fields: [businessId], references: [id])
+  businessId  String
+  menuType    MenuType      @relation(fields: [menuTypeId], references: [id])
+  menuTypeId  String
+  name        String
+  description String?
+  currency    String        @default("USD")
+  isActive    Boolean       @default(true)
+  visibility  MenuVisibility
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  categories  Category[]
+  items       MenuItem[]
+  qrTables    QRTable[]
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  menu      Menu     @relation(fields: [menuId], references: [id])
+  menuId    String
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     MenuItem[]
+}
+
+model MenuItem {
+  id            String     @id @default(uuid())
+  menu          Menu       @relation(fields: [menuId], references: [id])
+  menuId        String
+  category      Category   @relation(fields: [categoryId], references: [id])
+  categoryId    String
+  name          String
+  description   String?
+  price         Decimal    @db.Decimal(10, 2)
+  calories      Int?
+  imageUrl      String?
+  ingredients   Json
+  allergens     Json?
+  tags          Json?
+  status        ItemStatus @default(AVAILABLE)
+  isFeatured    Boolean    @default(false)
+  prepTimeMinutes Int?
+  spiceLevel    SpiceLevel?
+  sortOrder     Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model QRTable {
+  id        String   @id @default(uuid())
+  menu      Menu     @relation(fields: [menuId], references: [id])
+  menuId    String
+  label     String
+  code      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

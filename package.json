@@ -1,0 +1,39 @@
+{
+  "name": "hotel-menu-backend",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node dist/server.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:generate": "prisma generate",
+    "prisma:seed": "prisma db seed"
+  },
+  "dependencies": {
+    "@prisma/client": "6.15.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "~1.4.4",
+    "debug": "~2.6.9",
+    "express": "~4.16.1",
+    "http-errors": "~1.6.3",
+    "jsonwebtoken": "^9.0.0",
+    "morgan": "~1.9.1",
+    "pug": "2.0.0-beta11",
+    "zod": "^3.22.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.2",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.2",
+    "@types/morgan": "^1.9.10",
+    "prisma": "6.15.0",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.2.2"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  }
+}
