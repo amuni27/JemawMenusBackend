@@ -4,7 +4,7 @@ declare global {
   namespace Express {
     interface User {
       id: string;
-      vendorId: string;
+      businessId: string;
       role: string;
     }
     interface Menu {

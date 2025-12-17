@@ -26,23 +26,31 @@ const reorderSchema = z.object({
 
 // Helper to ensure menu ownership
 async function getMenuIfAuthorized(menuId: string, businessId: string) {
-  const menu = await prisma.menu.findUnique({ where: { id: menuId } });
-  if (!menu || menu.businessId !== businessId) return null;
-  return menu;
+  return prisma.menu.findFirst({ where: { id: menuId, businessId } });
 }
 
-// Middleware to fetch category by ID and ensure ownership via join
-router.param('categoryId', asyncHandler(async (req, _res, next, categoryId: string) => {
-  const category = await prisma.category.findUnique({ where: { id: categoryId } });
-  if (!category) return next({ status: 404, message: 'Category not found' });
-  // verify vendor ownership via menu
-  const menu = await prisma.menu.findUnique({ where: { id: category.menuId } });
-  if (!menu || menu.businessId !== req.user!.businessId) {
-    return next({ status: 404, message: 'Category not found' });
-  }
-  (req as any).category = category;
-  next();
-}));
+router.param(
+    'categoryId',
+    asyncHandler(async (req: any, res, next, categoryId: string) => {
+      const businessId = req.user!.businessId;
+
+      const category = await prisma.category.findFirst({
+        where: {
+          id: categoryId,
+          menu: { businessId },
+        },
+      });
+
+      if (!category) {
+        return res.status(404).json({ message: 'Category not found' });
+        // or: throw Object.assign(new Error('Category not found'), { status: 404 });
+      }
+
+      req.category = category;
+      next();
+    })
+);
+
 
 // GET /api/menus/:menuId/categories
 router.get('/menus/:menuId/categories', asyncHandler(async (req, res) => {

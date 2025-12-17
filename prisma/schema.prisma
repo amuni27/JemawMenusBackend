@@ -62,6 +62,8 @@ model User {
 
   // Relations
   businessesOwned Business[] @relation("OwnerBusinesses")
+  business       Business?   @relation("BusinessUsers", fields: [businessId], references: [id])
+  businessId     String?
 }
 
 model Business {
@@ -81,6 +83,7 @@ model Business {
 
   hours           BusinessHours[]
   menus           Menu[]
+  users           User[]       @relation("BusinessUsers")
 }
 
 model BusinessHours {
