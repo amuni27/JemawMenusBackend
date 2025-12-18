@@ -217,7 +217,7 @@ router.get('/items/:itemId', asyncHandler(async (req, res) => {
 }));
 
 // PATCH /api/items/:itemId
-router.patch('/items/:itemId', asyncHandler(async (req, res) => {
+router.put('/items/:itemId', asyncHandler(async (req, res) => {
     const data = updateItemSchema.parse(req.body);
     const item = (req as any).item as any;
 
@@ -232,12 +232,29 @@ router.patch('/items/:itemId', asyncHandler(async (req, res) => {
 }));
 
 // PATCH /api/items/:itemId/status
-router.patch('/items/:itemId/status', asyncHandler(async (req, res) => {
-    const {status} = statusSchema.parse(req.body);
-    const item = (req as any).item as any;
-    const updated = await prisma.menuItem.update({where: {id: item.id}, data: {status}});
-    res.json(updated);
-}));
+router.put(
+    "/items/:itemId/status",
+    asyncHandler(async (req, res) => {
+        const { itemId } = req.params;
+        const { status } = statusSchema.parse(req.body);
+
+        // ✅ find the item explicitly
+        const item = await prisma.menuItem.findUnique({
+            where: { id: itemId },
+        });
+
+        if (!item) {
+            return res.status(404).json({ message: "Item not found" });
+        }
+
+        const updated = await prisma.menuItem.update({
+            where: { id: itemId },
+            data: { status },
+        });
+
+        res.json(updated);
+    })
+);
 
 // DELETE /api/items/:itemId
 router.delete('/items/:itemId', asyncHandler(async (req, res) => {

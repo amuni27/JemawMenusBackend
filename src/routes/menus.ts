@@ -132,11 +132,12 @@ router.patch(
 router.delete(
     '/:menuId',
     asyncHandler(async (req: any, res) => {
+        const { menuId } = req.params;
         await prisma.$transaction([
-            prisma.qRTable.deleteMany({ where: { menuId: req.menu.id } }),
-            prisma.menuItem.deleteMany({ where: { menuId: req.menu.id } }),
-            prisma.category.deleteMany({ where: { menuId: req.menu.id } }),
-            prisma.menu.delete({ where: { id: req.menu.id } }),
+            prisma.qRTable.deleteMany({ where: { menuId: menuId } }),
+            prisma.menuItem.deleteMany({ where: { menuId: menuId } }),
+            prisma.category.deleteMany({ where: { menuId: menuId} }),
+            prisma.menu.delete({ where: { id: menuId } }),
         ]);
 
         res.status(204).send();
