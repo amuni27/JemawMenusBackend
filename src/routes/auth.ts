@@ -12,18 +12,19 @@ const router = Router();
 
 // ------------------- Helpers -------------------
 const DAYS = [
-    'MONDAY',
-    'TUESDAY',
-    'WEDNESDAY',
-    'THURSDAY',
-    'FRIDAY',
-    'SATURDAY',
-    'SUNDAY',
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
 ] as const;
 
 type DayOfWeek = (typeof DAYS)[number];
 
-const timeRegex = /^\d{2}:\d{2}$/;
+const timeHHmm = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid time format (HH:mm)");
+
 
 function normalizeEmail(email: string) {
     return email.trim().toLowerCase();
@@ -34,121 +35,151 @@ function normalizeSubdomain(sub: string) {
 }
 
 function timeToMinutes(t: string) {
-    // "HH:MM" -> minutes
     const hh = Number(t.slice(0, 2));
     const mm = Number(t.slice(3, 5));
     return hh * 60 + mm;
 }
 
 function prismaUniqueMessage(err: Prisma.PrismaClientKnownRequestError) {
-    // P2002 = Unique constraint failed
-    // meta.target is usually like ['email'] or ['customSubdomain']
     const target = (err.meta as any)?.target as string[] | string | undefined;
-
     const targets = Array.isArray(target) ? target : target ? [target] : [];
-    if (targets.includes('email')) return 'Email already in use';
-    if (targets.includes('customSubdomain')) return 'Subdomain already in use';
 
-    return 'Duplicate value';
+    if (targets.includes("email")) return "Email already in use";
+    if (targets.includes("customSubdomain")) return "Subdomain already in use";
+
+    return "Email or subdomain already in use";
 }
 
 // ------------------- Validation Schemas -------------------
-const hourSchema = z.object({
-    dayOfWeek: z.enum(DAYS),
-    isOpen: z.boolean(),
-    startTime: z.string().regex(timeRegex).nullable(),
-    endTime: z.string().regex(timeRegex).nullable(),
-});
+const hourSchema = z
+    .object({
+        dayOfWeek: z.enum(DAYS),
+        isOpen: z.boolean(),
+        startTime: timeHHmm.nullable().optional(),
+        endTime: timeHHmm.nullable().optional(),
+    })
+    .superRefine((h, ctx) => {
+        // If closed => times must be null/undefined
+        if (!h.isOpen) {
+            if (h.startTime != null || h.endTime != null) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: `${h.dayOfWeek}: startTime/endTime must be null when closed`,
+                });
+            }
+        }
+    });
 
 const registerSchema = z
     .object({
         // user
         fullName: z.string().min(1).transform((v) => v.trim()),
         email: z.string().email().transform(normalizeEmail),
-        phoneNumber: z.string().min(3).optional().transform((v) => v?.trim()),
+        phoneNumber: z
+            .string()
+            .trim()
+            .min(6)
+            .optional()
+            .or(z.literal(""))
+            .transform((v) => (v ? v.trim() : undefined)),
         password: z.string().min(6),
 
         // business
         businessName: z.string().min(1).transform((v) => v.trim()),
-        businessPhone: z.string().min(3).transform((v) => v.trim()),
-        streetAddress: z.string().min(1).transform((v) => v.trim()),
-        city: z.string().min(1).transform((v) => v.trim()),
-        state: z.string().min(1).transform((v) => v.trim()),
-        zipcode: z.string().min(3).transform((v) => v.trim()),
+        businessPhone: z.string().min(6).transform((v) => v.trim()),
 
+        // Ethiopia address fields (keep your DB columns)
+        streetAddress: z.string().min(1).transform((v) => v.trim()),
+
+        // Addis Ababa / Hawassa / Bahir Dar / Mekelle / etc.
+        city: z.string().min(1).transform((v) => v.trim()),
+
+        // We'll store "region" in your existing `state` column
+        // Examples: "Addis Ababa", "Oromia", "Amhara", "Tigray", "Sidama", ...
+        state: z.string().min(2).max(60).transform((v) => v.trim()),
+
+        // Zipcode isn't required in Ethiopia; keep optional (stored in zipcode column)
+        zipcode: z
+            .string()
+            .trim()
+            .max(20)
+            .optional()
+            .or(z.literal(""))
+            .transform((v) => (v ? v.trim() : "")),
+
+        // (Optional) Ethiopia-specific details (ONLY if you want them in request)
+        // You can ignore them if your DB doesn't have columns yet.
+        subCity: z.string().trim().max(60).optional(),
+        woreda: z.string().trim().max(30).optional(),
+        kebele: z.string().trim().max(30).optional(),
+        houseNumber: z.string().trim().max(30).optional(),
+
+        // subdomain
         customSubdomain: z
             .string()
+            .trim()
+            .toLowerCase()
             .min(3)
-            .regex(/^[a-z0-9-]+$/)
-            .transform(normalizeSubdomain),
+            .max(30)
+            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid subdomain"),
 
         open24_7: z.boolean(),
-        businessHours: z.array(hourSchema).length(7),
+        businessHours: z.array(hourSchema).optional().default([]),
     })
     .superRefine((val, ctx) => {
-        // Ensure we have exactly one entry per day
-        const days = val.businessHours.map((h) => h.dayOfWeek);
-        const uniqueDays = new Set(days);
-        if (uniqueDays.size !== 7) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: ['businessHours'],
-                message: 'businessHours must include exactly one entry for each day (MONDAY..SUNDAY)',
-            });
-            return;
-        }
-
-        // If not 24/7, require at least one open day
+        // If NOT open24_7 => require 7 entries and validate time ranges
         if (!val.open24_7) {
+            if (!val.businessHours || val.businessHours.length !== 7) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ["businessHours"],
+                    message: "businessHours must contain exactly 7 entries when open24_7 is false",
+                });
+                return;
+            }
+
+            const uniqueDays = new Set(val.businessHours.map((h) => h.dayOfWeek));
+            if (uniqueDays.size !== 7) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ["businessHours"],
+                    message: "businessHours must include exactly one entry for each day (MONDAY..SUNDAY)",
+                });
+            }
+
             const openDays = val.businessHours.filter((h) => h.isOpen).length;
             if (openDays === 0) {
                 ctx.addIssue({
                     code: z.ZodIssueCode.custom,
-                    path: ['businessHours'],
-                    message: 'At least one day must be open',
+                    path: ["businessHours"],
+                    message: "At least one day must be open",
                 });
             }
-        }
 
-        // Validate each day hour logic:
-        // - if isOpen = true and not 24/7 => start/end required and start < end
-        // - if isOpen = false => start/end must be null
-        for (const h of val.businessHours) {
-            if (!h.isOpen) {
-                if (h.startTime !== null || h.endTime !== null) {
+            for (const h of val.businessHours) {
+                if (!h.isOpen) continue;
+
+                if (!h.startTime || !h.endTime) {
                     ctx.addIssue({
                         code: z.ZodIssueCode.custom,
-                        path: ['businessHours'],
-                        message: `${h.dayOfWeek}: startTime/endTime must be null when closed`,
+                        path: ["businessHours"],
+                        message: `${h.dayOfWeek}: startTime and endTime are required when open`,
+                    });
+                    continue;
+                }
+
+                const start = timeToMinutes(h.startTime);
+                const end = timeToMinutes(h.endTime);
+                if (start >= end) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        path: ["businessHours"],
+                        message: `${h.dayOfWeek}: startTime must be before endTime`,
                     });
                 }
-                continue;
-            }
-
-            // If open24_7, we don’t require times (but we still accept them)
-            if (val.open24_7) continue;
-
-            if (!h.startTime || !h.endTime) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    path: ['businessHours'],
-                    message: `${h.dayOfWeek}: startTime and endTime are required when open`,
-                });
-                continue;
-            }
-
-            const start = timeToMinutes(h.startTime);
-            const end = timeToMinutes(h.endTime);
-            if (start >= end) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    path: ['businessHours'],
-                    message: `${h.dayOfWeek}: startTime must be before endTime`,
-                });
             }
         }
     });
-
 const loginSchema = z.object({
     email: z.string().email().transform(normalizeEmail),
     password: z.string().min(1),
@@ -158,12 +189,12 @@ const loginSchema = z.object({
 
 // REGISTER
 router.post(
-    '/register',
+    "/register",
     asyncHandler(async (req, res) => {
         const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) {
             return res.status(400).json({
-                message: 'Validation failed',
+                message: "Validation failed",
                 issues: parsed.error.issues,
             });
         }
@@ -178,7 +209,7 @@ router.post(
                         email: body.email,
                         phoneNumber: body.phoneNumber,
                         passwordHash: await hashPassword(body.password),
-                        role: 'OWNER',
+                        role: "OWNER",
                     },
                 });
 
@@ -189,14 +220,18 @@ router.post(
                         businessPhone: body.businessPhone,
                         streetAddress: body.streetAddress,
                         city: body.city,
+
+                        // region stored in your existing "state" column
                         state: body.state,
-                        zipcode: body.zipcode,
+
+                        // optional / not required for Ethiopia
+                        zipcode: body.zipcode ?? "",
+
                         customSubdomain: body.customSubdomain,
                         open24_7: body.open24_7,
                     },
                 });
 
-                // If open24_7, store all days as open with null times (or keep times if you prefer)
                 const hoursData = body.open24_7
                     ? DAYS.map((day) => ({
                         businessId: biz.id,
@@ -207,10 +242,10 @@ router.post(
                     }))
                     : body.businessHours.map((h) => ({
                         businessId: biz.id,
-                        dayOfWeek: h.dayOfWeek,
+                        dayOfWeek: h.dayOfWeek as DayOfWeek,
                         isOpen: h.isOpen,
-                        startTime: h.isOpen ? h.startTime : null,
-                        endTime: h.isOpen ? h.endTime : null,
+                        startTime: h.isOpen ? h.startTime! : null,
+                        endTime: h.isOpen ? h.endTime! : null,
                     }));
 
                 await tx.businessHours.createMany({ data: hoursData });
@@ -221,24 +256,15 @@ router.post(
             const token = signJwt({
                 userId: user.id,
                 businessId: biz.id,
-                role: 'OWNER',
+                role: "OWNER",
             });
 
-            return res.status(201).json({ message: 'Account created', token });
-        } catch (err) {
-            console.log(err)
-            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-                const target = (err.meta as any)?.target as string[] | string | undefined;
-                const fields = Array.isArray(target) ? target : target ? [target] : [];
+            return res.status(201).json({ message: "Account created", token });
+        } catch (err: any) {
+            console.log(err);
 
-                if (fields.includes('email')) {
-                    return res.status(400).json({ message: 'Email already in use' });
-                }
-                if (fields.includes('customSubdomain')) {
-                    return res.status(400).json({ message: 'Subdomain already in use' });
-                }
-
-                return res.status(400).json({ message: 'Duplicate value' });
+            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+                return res.status(400).json({ message: prismaUniqueMessage(err) });
             }
 
             throw err;
