@@ -1,4 +1,4 @@
-import {Router} from 'express';
+import {Router, Request, Response, NextFunction} from 'express';
 import {authRequired} from '../middleware/auth';
 import {asyncHandler} from '../middleware/asyncHandler';
 import {prisma} from '../prisma/client';
@@ -29,11 +29,19 @@ function ingredientsSchema() {
     }, {message: 'ingredients must be unique (case-insensitive)'});
 }
 
+const moneyNumber = z
+    .coerce
+    .number()
+    .finite()
+    .nonnegative()
+    .transform((n) => {
+        // normalize to 2 decimals without float drift
+        const cents = Math.round(n * 100);
+        return cents / 100;
+    });
 const baseFields = {
     name: z.string().min(1),
-    price: z.union([z.number(), z.string()])
-        .transform((v) => Number(v))
-        .refine((n) => Number.isFinite(n) && n >= 0, {message: "price must be a valid number >= 0"}),
+    price: moneyNumber,
 
     imageUrl: z
         .string()
@@ -69,7 +77,11 @@ const statusSchema = z.object({status: z.enum(['AVAILABLE', 'UNAVAILABLE'])});
 // GET /api/menus/:menuId/items
 router.get('/menus/:menuId/items', asyncHandler(async (req, res) => {
     const menuId = req.params.menuId;
-    const menu = await getMenuIfAuthorized(menuId, req.user!.businessId);
+    const businessId = req.user!.businessId
+    if (!businessId) {
+        return res.status(403).json({message: "business not found"});
+    }
+    const menu = await getMenuIfAuthorized(menuId, businessId);
     if (!menu) return res.status(404).json({message: 'Menu not found'});
 
     const querySchema = z.object({
@@ -158,10 +170,8 @@ router.post(
         // 5️⃣ PRICE CONVERSION
         let priceDecimal;
         try {
-            priceDecimal =
-                data.price instanceof Prisma.Decimal
-                    ? data.price
-                    : new Prisma.Decimal(Number(data.price).toFixed(2));
+            const cents = Math.round(data.price * 100);
+            priceDecimal = new Prisma.Decimal((cents / 100).toFixed(2));
             console.log("💰 priceDecimal:", priceDecimal.toString());
         } catch (e) {
             console.error("❌ Price conversion failed:", data.price);
@@ -203,13 +213,17 @@ router.post(
 );
 
 // Middleware for itemId param
-router.param('itemId',
-    asyncHandler(async (req, _res, next, itemId: string) => {
-        const item = await getItemIfAuthorized(itemId, req.user!.businessId);
-        if (!item) return next({status: 404, message: 'Item not found'});
-        (req as any).item = item;
-        next();
-    }));
+router.param("itemId", async (req: Request, _res: Response, next: NextFunction, itemId: string) => {
+    const businessId = req.user!.businessId;
+    if (!businessId) {
+        return _res.status(403).json({message: "business not found"});
+    }
+    const item = await getItemIfAuthorized(itemId, businessId);
+
+    if (!item) return next({status: 404, message: 'Item not found'});
+    (req as any).item = item;
+    next();
+});
 
 // GET /api/items/:itemId
 router.get('/items/:itemId', asyncHandler(async (req, res) => {
@@ -235,21 +249,21 @@ router.put('/items/:itemId', asyncHandler(async (req, res) => {
 router.put(
     "/items/:itemId/status",
     asyncHandler(async (req, res) => {
-        const { itemId } = req.params;
-        const { status } = statusSchema.parse(req.body);
+        const {itemId} = req.params;
+        const {status} = statusSchema.parse(req.body);
 
         // ✅ find the item explicitly
         const item = await prisma.menuItem.findUnique({
-            where: { id: itemId },
+            where: {id: itemId},
         });
 
         if (!item) {
-            return res.status(404).json({ message: "Item not found" });
+            return res.status(404).json({message: "Item not found"});
         }
 
         const updated = await prisma.menuItem.update({
-            where: { id: itemId },
-            data: { status },
+            where: {id: itemId},
+            data: {status},
         });
 
         res.json(updated);

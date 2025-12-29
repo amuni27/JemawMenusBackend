@@ -1,12 +1,13 @@
-import '@types/express-serve-static-core';
+import "@types/express-serve-static-core";
 
 declare global {
   namespace Express {
     interface User {
       id: string;
-      businessId: string;
+      businessId: string | null; // ✅ allow null
       role: string;
     }
+
     interface Menu {
       id: string;
       vendorId: string;
@@ -17,6 +18,7 @@ declare global {
       isActive: boolean;
       visibility: string;
     }
+
     interface Request {
       user?: User;
       menu?: Menu;

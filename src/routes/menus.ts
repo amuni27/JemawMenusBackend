@@ -29,6 +29,9 @@ router.get(
     '/',
     asyncHandler(async (req, res) => {
         const businessId = req.user!.businessId;
+        if (!businessId) {
+            return res.status(403).json({ message: "business not found" });
+        }
 
         const menus = await prisma.menu.findMany({
             where: { businessId },
@@ -49,6 +52,10 @@ router.post(
     asyncHandler(async (req, res) => {
         const data = createMenuSchema.parse(req.body);
         const businessId = req.user!.businessId;
+
+        if (!businessId) {
+            return res.status(403).json({ message: "Business id not found" });
+        }
 
         // Check business exists
         const business = await prisma.business.findUnique({
@@ -101,6 +108,10 @@ router.post(
 router.get("/:menuId", asyncHandler(async (req, res) => {
     const businessId = req.user!.businessId;
     const { menuId } = req.params;
+
+    if (!businessId) {
+        return res.status(403).json({ message: "business not found" });
+    }
 
     const menu = await prisma.menu.findFirst({
         where: { id: menuId, businessId },

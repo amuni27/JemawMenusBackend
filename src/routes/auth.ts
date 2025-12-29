@@ -1,12 +1,12 @@
-import { Router } from 'express';
-import { z } from 'zod';
-import { Prisma } from '@prisma/client';
+import {Router} from 'express';
+import {z} from 'zod';
+import {Prisma} from '@prisma/client';
 
-import { prisma } from '../prisma/client';
-import { asyncHandler } from '../middleware/asyncHandler';
-import { authRequired } from '../middleware/auth';
-import { hashPassword, comparePassword } from '../utils/password';
-import { signJwt } from '../utils/jwt';
+import {prisma} from '../prisma/client';
+import {asyncHandler} from '../middleware/asyncHandler';
+import {authRequired} from '../middleware/auth';
+import {hashPassword, comparePassword} from '../utils/password';
+import {signJwt} from '../utils/jwt';
 
 const router = Router();
 
@@ -202,7 +202,7 @@ router.post(
         const body = parsed.data;
 
         try {
-            const { user, biz } = await prisma.$transaction(async (tx) => {
+            const {user, biz} = await prisma.$transaction(async (tx) => {
                 const user = await tx.user.create({
                     data: {
                         fullName: body.fullName,
@@ -248,9 +248,9 @@ router.post(
                         endTime: h.isOpen ? h.endTime! : null,
                     }));
 
-                await tx.businessHours.createMany({ data: hoursData });
+                await tx.businessHours.createMany({data: hoursData});
 
-                return { user, biz };
+                return {user, biz};
             });
 
             const token = signJwt({
@@ -259,12 +259,12 @@ router.post(
                 role: "OWNER",
             });
 
-            return res.status(201).json({ message: "Account created", token });
+            return res.status(201).json({message: "Account created", token});
         } catch (err: any) {
             console.log(err);
 
             if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-                return res.status(400).json({ message: prismaUniqueMessage(err) });
+                return res.status(400).json({message: prismaUniqueMessage(err)});
             }
 
             throw err;
@@ -289,26 +289,30 @@ router.post(
         console.log(data)
 
         const user = await prisma.user.findUnique({
-            where: { email: data.email.toLowerCase() },
+            where: {email: data.email.toLowerCase()},
         });
 
         // Don’t leak which field is wrong
-        if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+        if (!user) return res.status(400).json({message: 'Invalid credentials'});
 
         const match = await comparePassword(data.password, user.passwordHash);
-        if (!match) return res.status(400).json({ message: 'Invalid credentials password not much' });
+        if (!match) return res.status(400).json({message: 'Invalid credentials password not much'});
 
         const business = await prisma.business.findFirst({
-            where: { ownerUserId: user.id },
+            where: {ownerUserId: user.id},
         });
+        const businessId = business?.id;
+        if (!businessId) {
+            return res.status(403).json({message: "business not found"});
+        }
 
         const token = signJwt({
             userId: user.id,
-            businessId: business?.id ?? null,
+            businessId: businessId,
             role: user.role,
         });
 
-        return res.json({ token, user, business });
+        return res.json({token, user, business});
     })
 );
 
@@ -320,15 +324,15 @@ router.get(
         const userId = req.user!.id;
 
         const user = await prisma.user.findUnique({
-            where: { id: userId },
+            where: {id: userId},
         });
 
-        if (!user) return res.status(404).json({ message: 'User not found' });
+        if (!user) return res.status(404).json({message: 'User not found'});
 
         const business = await prisma.business.findFirst({
-            where: { ownerUserId: user.id },
+            where: {ownerUserId: user.id},
         });
-        return res.json({ user, business });
+        return res.json({user, business});
     })
 );
 
