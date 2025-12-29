@@ -10,7 +10,7 @@ generator client {
 // Enums
 
 enum UserRole {
-  OWNER
+  VENUE
   ADMIN
   STAFF
 }

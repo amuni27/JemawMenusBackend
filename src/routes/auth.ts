@@ -209,7 +209,7 @@ router.post(
                         email: body.email,
                         phoneNumber: body.phoneNumber,
                         passwordHash: await hashPassword(body.password),
-                        role: "OWNER",
+                        role: "VENUE",
                     },
                 });
 
@@ -256,18 +256,25 @@ router.post(
             const token = signJwt({
                 userId: user.id,
                 businessId: biz.id,
-                role: "OWNER",
+                role: "VENUE",
             });
 
             return res.status(201).json({message: "Account created", token});
         } catch (err: any) {
-            console.log(err);
+            console.error(err);
 
-            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-                return res.status(400).json({message: prismaUniqueMessage(err)});
+            // Duplicate email / phone / subdomain
+            if (err.code === "P2002") {
+                return res.status(409).json({
+                    message: "This email, phone number, or business link is already registered.",
+                });
             }
 
-            throw err;
+            // Any database / enum / system error
+            return res.status(500).json({
+                message: "Something went wrong while creating your account. Please try again.",
+            });
+
         }
     })
 );
