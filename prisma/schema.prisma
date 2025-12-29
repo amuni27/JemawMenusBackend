@@ -12,12 +12,12 @@ generator client {
 enum UserRole {
   VENUE
   ADMIN
-  STAFF
 }
 
 enum UserStatus {
   ACTIVE
-  DISABLED
+  INACTIVE
+  SUSPENDED
 }
 
 enum MenuVisibility {
@@ -28,6 +28,7 @@ enum MenuVisibility {
 enum ItemStatus {
   AVAILABLE
   UNAVAILABLE
+  OUT_OF_STOCK
 }
 
 enum SpiceLevel {
@@ -35,6 +36,7 @@ enum SpiceLevel {
   MILD
   MEDIUM
   HOT
+  EXTRA_HOT
 }
 
 enum DayOfWeek {
