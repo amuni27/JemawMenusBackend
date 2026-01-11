@@ -32,17 +32,52 @@ router.get(
             return res.status(404).json({ message: "Business not found" });
         }
 
-        // 2) Menus (active)
-        const menus = await prisma.menu.findMany({
+        // --- helpers: "closest to current time-of-day" ---
+        const minutesSinceMidnight = (d: Date) => d.getHours() * 60 + d.getMinutes();
+
+        const circularDiffMinutes = (a: number, b: number) => {
+            const diff = Math.abs(a - b);
+            return Math.min(diff, 1440 - diff);
+        };
+
+        // 2) Menus (active) + menuType (where the time is stored)
+        const menusRaw = await prisma.menu.findMany({
             where: { businessId, isActive: true },
-            orderBy: [{ createdAt: "asc" }],
+            include: {
+                menuType: true, // <-- assumes relation name is "menuType"
+            },
         });
 
-        if (menus.length === 0) {
+        if (menusRaw.length === 0) {
             return res.json({ business, menus: [] });
         }
 
-        const menuIds = menus.map((m) => m.id);
+        const now = new Date();
+        const nowMin = minutesSinceMidnight(now);
+
+        // Sort by closest menuType.updatedAt time-of-day to now
+        const menusSorted = [...menusRaw].sort((a, b) => {
+            // If for any reason menuType is missing, push it to the end
+            if (!a.menuType && !b.menuType) return 0;
+            if (!a.menuType) return 1;
+            if (!b.menuType) return -1;
+
+            const aMin = minutesSinceMidnight(new Date(a.menuType.updatedAt));
+            const bMin = minutesSinceMidnight(new Date(b.menuType.updatedAt));
+
+            const da = circularDiffMinutes(nowMin, aMin);
+            const db = circularDiffMinutes(nowMin, bMin);
+
+            if (da !== db) return da - db;
+
+            // tie-breaker: if same distance, prefer the one with later menuType.updatedAt
+            return (
+                new Date(b.menuType.updatedAt).getTime() -
+                new Date(a.menuType.updatedAt).getTime()
+            );
+        });
+
+        const menuIds = menusSorted.map((m) => m.id);
 
         // 3) Categories (active)
         const categories = await prisma.category.findMany({
@@ -50,7 +85,6 @@ router.get(
             orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         });
 
-        // If no categories, customer sees no menus
         if (categories.length === 0) {
             return res.json({ business, menus: [] });
         }
@@ -91,15 +125,14 @@ router.get(
             categoriesByMenuId.set(cat.menuId, arr);
         }
 
-        // 5) Assemble menus, but ONLY menus that still have categories
-        const menusWithNested = menus
+        // 5) Assemble menus (KEEP the sorted order), but ONLY menus that still have categories
+        const menusWithNested = menusSorted
             .map((menu) => ({
                 ...menu,
                 categories: categoriesByMenuId.get(menu.id) ?? [],
             }))
             .filter((menu) => menu.categories.length > 0);
 
-        // If all menus became empty after filtering, return empty
         return res.json({
             business,
             menus: menusWithNested,
